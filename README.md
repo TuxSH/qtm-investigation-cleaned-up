@@ -741,7 +741,7 @@ d=\frac{
 }{s_w^2+s_h^2+t_w^2+t_h^2}.
 ```
 
-A sufficiently close existing cluster—strictly below the stored float near 0.09—receives the incoming rectangle and tags by weighted averaging; its weight increases by the incoming weight. The nearest cluster wins, with the first retaining an exact tie. This is an online, order-dependent procedure. It is not intersection-over-union suppression, and merging one hit does not trigger a global re-merge of all clusters.
+A sufficiently close existing cluster—strictly below the binary32 value `0x3DB851EC` (approximately 0.09)—receives the incoming rectangle and tags by weighted averaging; its weight increases by the incoming weight. The nearest cluster wins, with the first retaining an exact tie. This is an online, order-dependent procedure. It is not intersection-over-union suppression, and merging one hit does not trigger a global re-merge of all clusters.
 
 Search can terminate once a cluster reaches weight 1. Final filtering removes clusters below 1 using replacement by the last element, so output order can change. Selection then favors the image center. With rectangle center $(c_x,c_y)$,
 
@@ -868,7 +868,7 @@ Acquisition uses model 0. Tracking starts from model index 2, then applies the f
 | Tag 1 greater than 0.5 | 6 |
 | Tag 3 greater than 0.5 | 8 |
 
-Thus tag 3 takes priority over tag 1, which takes priority over tag 2. Finally, tag 0 above the stored threshold near 0.4, or an override field equal to 1, subtracts one. This produces four odd/even model pairs associated with the resource names `SNG`/`SG`, `SLFR`, `SLFL` and `SLFL_SLFR`. The exact training meaning of those labels is not established by their names.
+Thus tag 3 takes priority over tag 1, which takes priority over tag 2. Finally, tag 0 above the binary32 threshold `0x3ECCCCCD` (approximately 0.4), or an override field equal to 1, subtracts one. This produces four odd/even model pairs associated with the resource names `SNG`/`SG`, `SLFR`, `SLFL` and `SLFL_SLFR`. The exact training meaning of those labels is not established by their names.
 
 Selection uses the tags stored before the current frame's later classifier update. IR status does not directly select SDM. The override is initialized/reset to zero; a normal production writer setting it to 1 has not been identified.
 
@@ -892,7 +892,7 @@ This arranges the patches consistently with the face's size and inclination. The
 
 ### Selecting patch size and pyramid level
 
-Initial patch width is $\lfloor0.4\times\text{eye distance}\rfloor$. Widths below 4 fail before the later image-height cap. The normal minimum width is 5, maximum 9, and the scheduler repeatedly halves the width until it fits. Although the generic scheduler supports multiple levels, the ordinary settings usually yield **one selected pyramid level**: after a width in the 5–9 range is halved again, it falls below the minimum. A starting width of 24, for example, yields width 6 at level 2.
+Initial patch width is $\lfloor0.4\times\text{eye distance}\rfloor$, using the binary32 multiplier `0x3ECCCCCD`. Widths below 4 fail before the width is capped to the previous pyramid's base-image height. The scheduler then uses minimum width $\min(w,5)$ and maximum width 9, repeatedly halving the width until it fits. **Width 4 is accepted**: with ordinary image dimensions it uses minimum 4 and pyramid level 0; the next width, 2, is below that minimum. Larger starting widths normally use minimum 5. After reduction to a width in the 5–9 range, another halving falls below 5. Thus the ordinary settings yield **one selected pyramid level**, even though the generic scheduler supports several. A starting width of 24, for example, yields width 6 at level 2.
 
 This is an important distinction from an algorithm that always runs a long coarse-to-fine cascade. Here the pyramid primarily chooses an appropriate patch scale for the face.
 
@@ -915,7 +915,16 @@ flowchart LR
 
 At least five patches must remain active. Invalid patches are removed by moving the last entry into their slot, changing order. The coordinate origin for the linear system is based on the bounding box of all original reference points, before invalid points are removed.
 
-Sampling uses seven fractional bits for interpolation coordinates and five for the stored signed-short intensities/gradients. The initial pixel origin truncates $p-(w-1)/2$ toward zero, rather than applying mathematical floor. Bounds account for an additional pixel needed by interpolation and derivatives. When rows are subsampled, the actual number of processed samples and the normalization denominator differ for odd widths: width 7 can process 21 samples while normalizing by 24; width 9 can process 36 while normalizing by 40.
+Sampling uses seven fractional bits for interpolation coordinates and five for the stored signed-short intensities/gradients. The initial pixel origin truncates $p-(w-1)/2$ toward zero, rather than applying mathematical floor. Bounds account for an additional pixel needed by interpolation and derivatives. The selected width determines a row-subsampling shift: $q=1$ for $w\geq7$, otherwise $q=0$. Using integer right shifts, the loop and normalization are:
+
+```text
+rowCount = w >> q
+sampleCount = w * rowCount
+normalizationDenominator = (w * w) >> q
+sampledRow(j) = j * (1 << q), for j = 0 .. rowCount - 1
+```
+
+Consequently, width 7 samples rows 0, 2 and 4: 21 pixels, normalized by 24. Width 9 samples rows 0, 2, 4 and 6: 36 pixels, normalized by 40. The loop advances by `stride << q`; its vertical derivative still uses the immediately adjacent source row, not the next subsampled row. Bounds retain the full patch support plus the extra pixel. For odd widths, halving before multiplication and halving after multiplication produce the different sample count and denominator.
 
 The residual is current intensity minus reference intensity plus the rounded brightness offset. The patch error is based on squared intensity differences, not displacement of the patch center. Weights begin at 1. From the second iteration, each changes toward $100/(e+5)$ with coefficient 0.8. This reduces the relative influence of poorly matching patches.
 
@@ -923,7 +932,7 @@ The solver updates the transform before checking its stopping conditions. It acc
 
 ### Deciding whether to use the result
 
-The outer wrapper accepts a fitted transform if **either** the mean error of its best four patches is below 10 **or** its determinant differs from 1 by no more than the stored float near 0.13. These conditions are joined by OR. The determinant condition favors transforms that preserve area reasonably well, even when brightness matching is less convincing.
+The outer wrapper accepts a fitted transform if **either** the mean error of its best four patches is below 10 **or** its determinant differs from 1 by no more than the binary32 value `0x3E051EB8` (approximately 0.13). These conditions are joined by OR. The determinant condition favors transforms that preserve area reasonably well, even when brightness matching is less convincing.
 
 Accepted output is obtained by transforming the original eyes, rather than by returning the first two entries of the mutable patch list. The wrapper also maintains a separate flow-error estimate. Its target derives from the first two original patch errors divided by eye distance, clamped to 0–10. Its update coefficient depends on how far the fitted transform moves the point $(1,1)$. This value is separate from the tracker's temporal face confidence.
 
@@ -1009,7 +1018,7 @@ Verification warps the predicted face to a canonical image. The full verificatio
 
 The warp uses bilinear interpolation. If the full-face rectangle extends below the image by at least a quarter of its height, QTM selects the TOP base model rather than the full model. No usable overlap leads toward Coast and confidence decay.
 
-The frame's verified flag is true when the classifier accepts, or when a low-threshold shortcut applies. Classification receives an input threshold near $10^{-5}$ and writes back a diagnostic threshold even on rejection. The shortcut compares that output threshold's signed bit pattern against `0x3727C5AC`, approximately $10^{-5}$. Consequently, “verified” does not always imply that the classifier produced a positive response. Shortcut verification can update tags toward zero.
+The frame's verified flag is true when the classifier accepts, or when a low-threshold shortcut applies. Classification receives the binary32 input threshold `0x3727C5AC`, approximately $10^{-5}$ and writes back a diagnostic threshold even on rejection. The shortcut compares that output threshold's signed bit pattern against `0x3727C5AC`, approximately $10^{-5}$. Consequently, “verified” does not always imply that the classifier produced a positive response. Shortcut verification can update tags toward zero.
 
 Temporal confidence obeys
 
@@ -1059,6 +1068,14 @@ r=\frac{\text{sensitivity}}{f},\qquad
 q=\mathrm{round}_{\mathrm{away}}\big((\text{raw}-\text{zero})r\,\text{userGain}\big).
 ```
 
+The divisor 936 represents the angular-rate span between the positive and negative calibration references. A **presumed explanation** is calibration on a turntable at +78 and −78 RPM: one revolution per minute is $360/60=6$ degrees per second, so each reference would have magnitude 468 degrees per second, giving
+
+```math
+2\times78\times\frac{360}{60}=936\ \text{degrees per second}.
+```
+
+The 78 RPM turntable is a hypothesis about the factory procedure, not an independently established fact. Under this interpretation, $f$ has units of sensor counts per degree per second, and its reciprocal converts counts to degrees per second. The software's divisor itself is established regardless of that proposed procedure.
+
 The ratio calculation uses double precision. The later conversion from corrected counts to turns per second uses a float scale $1/(360\,\text{sensitivity})$. Each corrected integer enters a 256-entry history ring.
 
 ### Smoothing and bias estimation
@@ -1078,7 +1095,7 @@ Five successive squarings compute the high power. A short matching run gives a t
 b\leftarrow b+(q_s-b)(\alpha_b w).
 ```
 
-The output subtracts the stored bias even when learning is disabled. Three presets provide radius/bias-rate pairs $(0.02,0.04)$, $(0.01,0.02)$ and $(0.005,0.01)$; the middle one is the normal selection. An optional dead zone, disabled by default, uses a threshold near 0.005 with inclusive boundaries. Its internal quality metric is unrelated to face confidence.
+The output subtracts the stored bias even when learning is disabled. Three presets provide radius/bias-rate pairs $(0.02,0.04)$, $(0.01,0.02)$ and $(0.005,0.01)$; the middle one is the normal selection. An optional dead zone, disabled by default, uses threshold `0x3BA3D70A` (approximately 0.005) with inclusive boundaries. Its internal quality metric is unrelated to face confidence.
 
 An optional 3 × 4 affine correction can mix the three rate axes and add offsets. Identity detection considers all twelve entries, and transformed outputs use the original input vector rather than partially updated components.
 
@@ -1208,7 +1225,7 @@ with a particular stored operation order. An exactly zero determinant prevents a
 
 ### Reliability controls learning separately from prediction
 
-The residual is the distance between the previous prediction and the new target. Its smoothed estimate uses a 0.95 history factor, with special handling for an initial value exactly equal to 1 and residuals above 1. The adaptation weight is the residual divided by a scale near 0.04, clamped to 0–1. A strictly positive weight and the required strict-history mask are necessary for learning.
+The residual is the distance between the previous prediction and the new target. Its smoothed estimate uses a 0.95 history factor, with special handling for an initial value exactly equal to 1 and residuals above 1. The adaptation weight is the residual divided by a scale of binary32 `0x3D23D70A` (approximately 0.04), clamped to 0–1. A strictly positive weight and the required strict-history mask are necessary for learning.
 
 QTM distinguishes usable observations from strictly reliable observations:
 
@@ -1282,7 +1299,7 @@ QTM's small-motion smoother suppresses jitter using
 \text{output}=o+\alpha(t-o).
 ```
 
-Here $o$ is the old value, $t$ the target and $T$ a threshold. Small changes are attenuated; changes larger than $T$ pass through completely. It is not a maximum-speed limiter. Defaults include thresholds around 0.02 and 0.04 for the relevant eye/prediction smoothing paths.
+Here $o$ is the old value, $t$ the target and $T$ a threshold. Small changes are attenuated; changes larger than $T$ pass through completely. It is not a maximum-speed limiter. Defaults include binary32 thresholds `0x3CA3D70A` (approximately 0.02) and `0x3D23D70A` (approximately 0.04) for the relevant eye/prediction smoothing paths.
 
 The first stable snapshot does not use learned future motion: it starts with zero future displacements at nominal future ticks. Later snapshots attenuate predicted displacements toward zero and smooth reliable eyes from previous stable eyes toward measured eyes.
 
@@ -1330,13 +1347,23 @@ P=b+k_2,\qquad Q=P+3\big((b+k_1)-P\big),\qquad
 s=(h-2)\,c_3,
 ```
 
-where $c_3$ is the captured float approximately 0.33333. The late curve is
+where $c_3$ is binary32 `0x3EAAAA3B`, approximately 0.3333300054073334. The late curve is
 
 ```math
 p(h)=(-Q+3P)s^3+(2Q-5P)s^2+(P-Q)s+P.
 ```
 
-At a horizon near five frames this tends toward normalized zero. It pulls **both eyes** toward zero, including their separation, rather than merely stopping their velocity. Error interpolation also has asymmetric rules: it interpolates toward a larger next error, and the late branch moves error toward 1 without a universal final clamp.
+This is a **cubic Hermite segment**: a cubic curve specified by its values and slopes at its two endpoints. Set $M=P-Q$. In real-number algebra, the same curve can be written as
+
+```math
+p(s)=(2s^3-3s^2+1)P+(s^3-2s^2+s)M.
+```
+
+At $s=0$, its value is $P$ and its slope with respect to $s$ is $M$; at $s=1$, both value and slope are zero. Because $M=3(k_2-k_1)$, an exact $c_3=1/3$ would join the preceding linear segment with matching slope at $h=2$ and reach zero with zero slope at $h=5$. This gives a useful intuition: the extrapolation bends smoothly toward zero instead of stopping abruptly.
+
+The stored coefficient is slightly smaller than $1/3$. Before other floating-point rounding, the initial slope with respect to $h$ is $3c_3(k_2-k_1)$, with $3c_3=0.9999900162220001$. At the public horizon cap $h=5$, $s$ has that same value; the ideal polynomial endpoint $s=1$ would occur at approximately $h=5.0000299516$. Thus slope matching and the zero endpoint at five frames are **approximate**, not exact binary32 guarantees. The Hermite form explains the shape; substituting it for the original evaluation order can change low bits.
+
+The curve pulls **both eyes** toward normalized zero, including their separation, rather than merely stopping their velocity. Error interpolation also has asymmetric rules: it interpolates toward a larger next error, and the late branch moves error toward 1 without a universal final clamp.
 
 Gyro propagation follows when the snapshot has a usable gyro anchor. Finally the predictor returns tangent-like coordinates $(xt_x,-yt_y)$, introducing an upward-positive vertical sign.
 
@@ -1384,6 +1411,19 @@ Defaults are center 6.5, translations zero, rotation zero, field of view 66.4 de
 
 Startup parsing contains a copy peculiarity: raw translation X is copied into both parsed translation fields. Live calibration parsing copies X and Y separately. Because the recovered phase path does not use those translations, this difference does not add a hidden translation term to the formula.
 
+The captured image contains a non-default raw calibration record at `0x1AB008`:
+
+| Field | Captured binary32 value | Exact bits |
+| --- | --- | --- |
+| Barrier center | 4.599404811859131 | `0x40932E53` |
+| Translation X | 0.007757425308227539 | `0x3BFE3200` |
+| Translation Y | 0.006419118028134108 | `0x3BD25777` |
+| Rotation Z, degrees | 0.1743932068347931 | `0x3E329422` |
+| Field of view, degrees | 68.15384674072266 | `0x42884EC5` |
+| Viewing distance | 294.8139343261719 | `0x4393682F` |
+
+The parsed record at `0x1EB63734` is ordered rotation, field of view, translation X, translation Y, center, distance. Its two translation slots both contain the raw X value `0x3BFE3200`; the other four values match the raw record. These captured values describe this image's calibration, while the earlier defaults describe construction without that record.
+
 ### Computing the phase
 
 Let $F$ be the stored field of view in degrees, $d$ the degree-to-radian float, $D$ the distance parameter and $I$ the internal interocular parameter. The manager computes
@@ -1420,6 +1460,14 @@ Rotation occurs around the raw image origin **before** horizontal centering. Mov
 
 With zero rotation, moving the midpoint right increases the unwrapped phase according to $K/W$. Eye separation does not directly alter the phase. If this formula is rewritten in a centered normalized coordinate with the corresponding width convention, the horizontal factor contains 6 rather than 12 because the normalized range spans two image widths in its definition.
 
+For scale intuition, use the constructor defaults $D=301$, $I=62$, $F=66.4^\circ$ and zero rotation. In ideal real-number arithmetic,
+
+```math
+K=\frac{301\times12\times\tan(33.2^\circ)}{62}\approx38.123.
+```
+
+Across a 320-pixel image width, this is about 38.123 unwrapped phase units, or 3.177 complete twelve-phase cycles. One phase unit corresponds to about $320/38.123=8.394$ pixels of midpoint motion. These are continuous-gain approximations before rounding and hysteresis, using the defaults rather than the captured calibration above.
+
 ### Hysteresis and cyclic phase
 
 The manager retains a previous rounded, unwrapped phase. For a new float phase $p$, it first rounds ties away from zero. If that candidate is exactly one below the previous integer, it adds 0.01 to $p$; if exactly one above, it subtracts 0.01. It stores the rounded adjusted phase and returns the adjusted float.
@@ -1455,14 +1503,28 @@ The center-only IPC enforces $0<\text{center}<13$. The full calibration-record I
 
 ### Startup gains used by public coordinates
 
-Public coordinate gains are initialized through a table-based trigonometric path, distinct from the barrier/tracker tangent routine. It evaluates a half-field-of-view angle using a table with 256 units per full turn. With the resulting ratio $T$,
+Public coordinate gains are initialized through a table-based trigonometric path, distinct from the barrier/tracker tangent routine. It evaluates a half-field-of-view angle using a table with 256 units per full turn and interpolates within a table interval. With the resulting sine/cosine ratio $T$,
 
 ```math
-g_x=\frac{T}{0.6358439326},\qquad
-g_y=\frac{0.75T}{0.4769752622}.
+g_x=\frac{T}{t_{x,\mathrm{nom}}},\qquad
+g_y=\frac{0.75T}{t_{y,\mathrm{nom}}}.
 ```
 
-The loaded image contains gains near 1.06388 and 1.063676. These are runtime values in that image, not universal hard-coded calibration constants. Table approximation and operation order also make this path differ slightly from a direct mathematical tangent.
+| Nominal factor | Exact binary32 value | Bits | Geometric interpretation |
+| --- | --- | --- | --- |
+| $t_{x,\mathrm{nom}}$ | 0.6358439326286316 | `0x3F22C6AB` | Approximately $\tan(32.45^\circ)$ |
+| $t_{y,\mathrm{nom}}$ | 0.4769752621650696 | `0x3EF4361A` | Approximately $\tan(25.5^\circ)$ |
+
+A tangent of half the field of view describes the image's half-extent on a projection plane one unit from the camera. These factors therefore correspond to a nominal full field of view of approximately **64.9° × 51.0°**. Their ratio is about 0.750145, close to the 0.75 expected from a 4:3 image; it is not exactly 0.75. This is a geometric interpretation of the constants, not an exact tangent identity or an independently established account of their design provenance.
+
+The captured field of view, 68.15384674072266°, produces the captured gains exactly through this table path:
+
+| Gain | Captured binary32 value | Exact bits |
+| --- | --- | --- |
+| $g_x$ | 1.0638827085494995 | `0x3F882D4F` |
+| $g_y$ | 1.0636768341064453 | `0x3F882690` |
+
+In contrast, the constructor field of view of 66.4° gives gains 1.029154896736145 and 1.0289556980133057 through the same path. The discrepancy is explained by the **non-default captured calibration**, not a coarse rounding of the angle to one of 256 positions. Table approximation and operation order still make small differences relative to an ideal tangent.
 
 The practical consequence is that field of view has three connected but distinct roles: internal tracking projection, barrier-phase gain, and startup public-coordinate gain. A live update reaches the first two immediately but leaves the third unchanged.
 
@@ -1483,7 +1545,17 @@ The low-word table is:
 | 12 | `0000` | Transparent/2D preset |
 | 13 | `0E0F` | Static-3D preset |
 
-For each preset, the alternating high word is the low word XOR `0x1FFF`. These are thirteen driven bits; the bit patterns alone do not establish a complete physical wiring or optical-slit model.
+All twelve dynamic low words are successive **12-bit rotate-left** operations on `0x03F0`: a cyclic window of six set bits and six clear bits. Every dynamic low word has exactly six set bits. The recurrence is:
+
+```text
+next = ((low << 1) | (low >> 11)) & 0x0FFF
+```
+
+After twelve rotations the pattern returns to its starting position. This explains the table's twelve distinct phase positions at the bit-pattern level, without assigning individual bits to physical slits or electrodes.
+
+For each preset, the alternating high word is the low word XOR `0x1FFF`, complementing thirteen bits. In dynamic presets, bit 12 is always zero in the low word and one in the high word: it is independent of the selected phase, but **toggles within each alternating pair**.
+
+The complementary drive is consistent with reversing liquid-crystal electrode polarity to avoid DC bias. Alternating segment-to-common voltage with little or no DC offset is a general LCD drive principle; see [TI's explanation of LCD waveforms, section 2](https://www.ti.com/lit/pdf/slaa516). Its application here remains an interpretation: the words alone do not establish the panel wiring, common-electrode assignment or optical-slit model, and QTM's event-driven writes do not establish perfectly balanced electrical dwell times.
 
 Initialization configures GPIO mask `0x20000` as an output and drives it high. On I²C device 16, QTM writes two zero bytes beginning at configuration register 6, making the expander pins outputs, and writes zeros beginning at output register 2. Subsequent alternation writes the output registers 2 and 3. It does not use the expander's polarity-inversion registers to produce the alternation.
 
@@ -1728,7 +1800,7 @@ Y=(p_y/160-0.75)g_y,
 
 using the startup calibration gains. It then considers bounds $X\in[-1,1]$, $Y\in[-0.75,0.75]$. For each axis it computes the correction needed by each eye, chooses the larger absolute correction, with ties favoring the right eye, and translates **both** eyes by that correction. This preserves separation. It is not independent clamping of each eye, and an eye pair wider than the allowed region need not end with both eyes inside it.
 
-The tangent-like fields multiply adjusted planar coordinates by nominal factors approximately 0.6358439326 and 0.4769752622. These fields are neither gaze vectors nor head positions measured in meters.
+The tangent-like fields multiply adjusted planar coordinates by the [nominal half-field-of-view tangent factors](#calibration), binary32 `0x3F22C6AB` and `0x3EF4361A` (approximately 0.6358439326 and 0.4769752622). These fields are neither gaze vectors nor head positions measured in meters.
 
 Unavailable runtime returns `0xC8A183EF`; busy runtime can return `0xC8A18008`. Associated fallback records are zeroed on the applicable error paths. Conversely, a successful getter can return fallback predicted eyes even when the camera is unverified or useful prediction history is absent. Callers must inspect flags/confidence according to their needs rather than treating IPC success as proof of a currently visible face.
 
@@ -1847,7 +1919,7 @@ Replay/logging support and auxiliary gyro caches are present but are not require
 <a id="implementation"></a>
 ## 19. Numerical behavior, structures and function map
 
-The equations explain QTM's behavior, but exact reproduction also depends on representation and operation order. This chapter collects details that do not fit naturally into the conceptual pipeline.
+The equations explain QTM's behavior, but exact reproduction also depends on representation and operation order. This chapter collects details that do not fit naturally into the conceptual pipeline, including [exact threshold and parameter bits](#numeric-constants).
 
 ### Floating-point environment and constants
 
@@ -1869,6 +1941,49 @@ Legacy ARM VFP multiply-accumulate instructions round multiplication and accumul
 | Timestamp comparisons | Usually low-word differences interpreted as signed or unsigned at the particular caller |
 
 Different rounding operations coexist: ordinary arithmetic rounds nearest/even; several explicit coordinate/calibration helpers round ties away from zero; integer conversions truncate or saturate according to the specific instruction/helper. They should not all be replaced by one host-language `round` function.
+
+<a id="numeric-constants"></a>
+### Exact thresholds and numerical parameters
+
+Decimal labels in the algorithm chapters are readable shorthand. The following hexadecimal words specify the binary32 values used by those comparisons and ordinary defaults. Configurable defaults can be replaced at runtime. A threshold derived by squaring, dividing or otherwise combining these parameters must preserve the stated operation order and binary32 rounding; it is not a separately rounded decimal literal. Model-resource thresholds and the deliberately chosen VM-example values are distinct from these shared parameters.
+
+| Use | Decimal shorthand | Exact binary32 bits |
+| --- | --- | --- |
+| Acquisition classifier input / adaptive regularization | 1e-06 | `0x358637BD` |
+| Verification classifier input and diagnostic shortcut | 1e-05 | `0x3727C5AC` |
+| Cholesky minimum pivot | 1.19209e-07 | `0x34000000` |
+| Gyro dead zone / narrow smoothing radius | 0.005 | `0x3BA3D70A` |
+| Flow movement stop / low motion validity / barrier hysteresis | 0.01 | `0x3C23D70A` |
+| Axis-adaptation gyro-change gate | 0.015 | `0x3C75C28F` |
+| Tag smoothing / eye smoothing / gyro preset parameter | 0.02 | `0x3CA3D70A` |
+| Axis-adaptation midpoint gate and angular step | 0.03 | `0x3CF5C28F` |
+| Prediction smoothing / adaptation residual scale / gyro preset parameter | 0.04 | `0x3D23D70A` |
+| Acquisition hypothesis weight offset | 0.05 | `0x3D4CCCCD` |
+| Rectangle-merge distance threshold | 0.09 | `0x3DB851EC` |
+| IR stable gyro rate / head-motion EMA / candidate trust | 0.1 | `0x3DCCCCCD` |
+| Flow determinant-deviation threshold | 0.13 | `0x3E051EB8` |
+| Acquisition minimum face-width fraction | 0.1875 | `0x3E400000` |
+| Confidence loss threshold / IR gyro-motion EMA | 0.2 | `0x3E4CCCCD` |
+| Full/TOP verification-model overflow threshold | 0.25 | `0x3E800000` |
+| Reacquisition overlap / confidence EMA / initial axis-adaptation cost | 0.3 | `0x3E99999A` |
+| SDM odd-model threshold / initial flow patch-width factor | 0.4 | `0x3ECCCCCD` |
+| SDM tag thresholds / seed confidence / candidate trust | 0.5 | `0x3F000000` |
+| Public vertical bound / acquisition maximum face fraction / partial validity | 0.75 | `0x3F400000` |
+| Confidence recovery threshold / flow-weight update | 0.8 | `0x3F4CCCCD` |
+| Candidate trust | 0.9 | `0x3F666666` |
+| Adaptive residual history / fallback-anchor decay | 0.95 | `0x3F733333` |
+| Gyro interval history | 0.99 | `0x3F7D70A4` |
+| Unit acceptance, residual and coordinate bounds | 1 | `0x3F800000` |
+| Flow mean-error stop / linear-to-cubic horizon boundary | 2 | `0x40000000` |
+| Coast motion bound / public horizon cap | 5 | `0x40A00000` |
+| Flow best-four error gate / gyro point-admission bound | 10 | `0x41200000` |
+| IR stable head-motion rate | 20 | `0x41A00000` |
+| IR nominal frame rate | 30 | `0x41F00000` |
+| IR darkness threshold in lux | 50 | `0x42480000` |
+
+The axis-adaptation lower angle bound is `0xBFC90FDB` (−1.5707963705062866), the negative of the projection clamp magnitude listed above. The late-prediction coefficient is `0x3EAAAA3B`, not the nearest binary32 representation of an exact one-third. The gyro calibration reciprocal $1/936$ is stored in **binary64**, as `0x3F51811811811812`.
+
+For IR, the stable comparisons use squared rate thresholds, formed from 0.1 and 20. The gyro wake threshold is formed as the square of the binary32 division $1/30$. A rounded prose value for either derived threshold must not replace those operations. Integer counters, dimensions and iteration limits remain integers; the hexadecimal words above apply to floating-point quantities.
 
 ### Nonfinite numbers and partial recovery
 
@@ -2092,6 +2207,10 @@ This consolidation summarizes retained results; creating this document did not r
 
 The two illustrative VM programs in [the worked examples](#vm-examples) were encoded with the documented record layouts and run through the existing independent Python reference. Checks confirmed feature code 127, instruction offsets, the accepted record, early-acceptance IDs, the two-call token sequence and capacity-two traversal. These are checks of the explanatory examples, not additional original-ARM comparisons or recognition-accuracy results.
 
+The calibration clarification compared the six raw words at `0x1AB008` with the parsed record at `0x1EB63734`, including the duplicated startup X translation. Feeding the captured FOV into the retained table-based startup-gain reference reproduces both captured gain words exactly; feeding the constructor FOV produces the smaller gains stated in the calibration chapter. This is a check of the captured image and software arithmetic, not a new hardware calibration experiment.
+
+Checks of the explanatory additions cover all twelve barrier rotations, their six-bit populations and bit-12 complements; inverse-tangent interpretations of the nominal factors; the default continuous phase scale; the Hermite endpoint algebra and stored coefficient; and the width-4 scheduler and odd-width row counts. Decimal/hexadecimal values and Markdown structure are checked separately. The LCD polarity and 78 RPM factory-procedure interpretations remain qualified hypotheses.
+
 ### Confidence, interpretations and remaining limits
 
 The ordinary software chain from camera pixels and HID samples through tracking/history, both predictors, calibration, barrier publication, public getter serialization and connected IR ownership is substantially recovered. The evidence supports the described state transitions, data layouts and arithmetic under the stated fixtures.
@@ -2105,6 +2224,7 @@ Some interpretations remain deliberately narrower:
 | Camera configuration requests a nominal 30 FPS mode | Actual exposure cadence, missed frames and end-to-end latency require hardware observation |
 | Software IR statuses 0/50/100 and command order | Actual illumination timing and camera acknowledgment are not measured by those statuses |
 | Gyro count conversion and projected-axis equations | Physical console-axis directions/signs require an external orientation experiment |
+| Gyro calibration divisor 936 | Opposite 78 RPM turntable references are a presumed explanation, not an established factory procedure |
 | Fixed LBP/SDM models and tag-dependent selection | Training data, training procedure, vendor provenance and precise semantic labels are not recovered |
 | Output words and thirteen driven expander bits | Full panel wiring and optical behavior are not reconstructed from those words alone |
 
